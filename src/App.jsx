@@ -247,7 +247,7 @@ export default function AeonDEX() {
         await _provider.send("eth_requestAccounts", []);
         const _signer = await _provider.getSigner();
         
-        // 2. ASSINATURA DA MENSAGEM (Opcional, mas mantendo conforme seu fluxo)
+        // 2. ASSINATURA DA MENSAGEM (Opcional)
         const message = `Welcome to Aeon DEX!\n\nPlease sign this message to confirm ownership.\n\nTime: ${new Date().toLocaleString()}`;
         try {
             await _signer.signMessage(message);
@@ -360,6 +360,33 @@ export default function AeonDEX() {
       } catch (e) {
           console.error("Fetch Error:", e);
       }
+  };
+
+  // --- CALCULA PROPORÇÃO E PREENCHE AUTOMÁTICO (ADD LIQUIDITY) ---
+  const handleLiquidityChange = (token, value) => {
+    if (token === 'USDC') {
+        setLiquidityUSDC(value);
+        // Se a pool tiver reservas e o valor for válido, calcula o EURC correspondente
+        if (reserves.r0 > 0 && reserves.r1 > 0 && value && parseFloat(value) > 0) {
+             const amountUSDC = parseFloat(value);
+             // r1 = EURC, r0 = USDC. Proporção: (amountUSDC * r1) / r0
+             const requiredEURC = (amountUSDC * reserves.r1) / reserves.r0;
+             setLiquidityEURC(requiredEURC.toFixed(6));
+        } else if (!value) {
+            setLiquidityEURC('');
+        }
+    } else {
+        setLiquidityEURC(value);
+        // Se a pool tiver reservas e o valor for válido, calcula o USDC correspondente
+        if (reserves.r0 > 0 && reserves.r1 > 0 && value && parseFloat(value) > 0) {
+            const amountEURC = parseFloat(value);
+            // r0 = USDC, r1 = EURC. Proporção: (amountEURC * r0) / r1
+            const requiredUSDC = (amountEURC * reserves.r0) / reserves.r1;
+            setLiquidityUSDC(requiredUSDC.toFixed(6));
+        } else if (!value) {
+            setLiquidityUSDC('');
+        }
+    }
   };
 
   // --- CHECK ALLOWANCES ---
@@ -821,11 +848,11 @@ export default function AeonDEX() {
                                 <label>Deposit USDC</label>
                                 <span className="flex items-center gap-1">
                                     Balance: {formatBalance(balances.usdc)}
-                                    {account && <button onClick={() => setLiquidityUSDC(balances.usdc)} className="text-purple-400 font-bold hover:text-purple-300 ml-1">MAX</button>}
+                                    {account && <button onClick={() => handleLiquidityChange('USDC', balances.usdc)} className="text-purple-400 font-bold hover:text-purple-300 ml-1">MAX</button>}
                                 </span>
                             </div>
                             <div className="flex gap-2">
-                                <input type="number" value={liquidityUSDC} onChange={e => setLiquidityUSDC(e.target.value)} className="w-full bg-transparent outline-none text-white font-bold text-xl placeholder-slate-700" placeholder="0.00"/>
+                                <input type="number" value={liquidityUSDC} onChange={e => handleLiquidityChange('USDC', e.target.value)} className="w-full bg-transparent outline-none text-white font-bold text-xl placeholder-slate-700" placeholder="0.00"/>
                                 <span className="text-sm font-bold text-slate-400">USDC</span>
                             </div>
                         </div>
@@ -842,11 +869,11 @@ export default function AeonDEX() {
                                 <label>Deposit EURC</label>
                                 <span className="flex items-center gap-1">
                                     Balance: {formatBalance(balances.eurc)}
-                                    {account && <button onClick={() => setLiquidityEURC(balances.eurc)} className="text-purple-400 font-bold hover:text-purple-300 ml-1">MAX</button>}
+                                    {account && <button onClick={() => handleLiquidityChange('EURC', balances.eurc)} className="text-purple-400 font-bold hover:text-purple-300 ml-1">MAX</button>}
                                 </span>
                             </div>
                             <div className="flex gap-2">
-                                <input type="number" value={liquidityEURC} onChange={e => setLiquidityEURC(e.target.value)} className="w-full bg-transparent outline-none text-white font-bold text-xl placeholder-slate-700" placeholder="0.00"/>
+                                <input type="number" value={liquidityEURC} onChange={e => handleLiquidityChange('EURC', e.target.value)} className="w-full bg-transparent outline-none text-white font-bold text-xl placeholder-slate-700" placeholder="0.00"/>
                                 <span className="text-sm font-bold text-slate-400">EURC</span>
                             </div>
                         </div>
