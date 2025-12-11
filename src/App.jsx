@@ -7,7 +7,6 @@ import {
   Loader2, 
   LogOut, 
   Info, 
-  Database, 
   ExternalLink, 
   Github, 
   ArrowDown,
@@ -18,7 +17,8 @@ import {
   Copy,
   X,
   PieChart,
-  ArrowDownCircle
+  ArrowDownCircle,
+  HelpCircle
 } from 'lucide-react';
 import { ethers } from 'ethers';
 
@@ -59,16 +59,15 @@ const DEX_ABI = [
 
 // --- ÍCONES ---
 const USDCIcon = () => (
-  <div className="w-5 h-5 rounded-full bg-[#2775CA] flex items-center justify-center text-white font-bold text-[10px] mr-2 shadow-sm">
-    $
-  </div>
+  <div className="w-5 h-5 rounded-full bg-[#2775CA] flex items-center justify-center text-white font-bold text-[10px] mr-2 shadow-sm">$</div>
 );
 
 const EURCIcon = () => (
-  <div className="w-5 h-5 rounded-full bg-[#2775CA] flex items-center justify-center text-white font-bold text-[10px] mr-2 shadow-sm">
-    €
-  </div>
+  <div className="w-5 h-5 rounded-full bg-[#2775CA] flex items-center justify-center text-white font-bold text-[10px] mr-2 shadow-sm">€</div>
 );
+
+// --- CONSTANTES ---
+const SLIPPAGE_TOLERANCE = 0.005; // 0.5%
 
 export default function AeonDEX() {
   // Estado UI
@@ -87,99 +86,26 @@ export default function AeonDEX() {
   const [decimals, setDecimals] = useState({ usdc: 18, eurc: 18 });
   const [reserves, setReserves] = useState({ r0: 0, r1: 0 }); 
   
-  // Dados de Liquidez/Rendimentos
+  // Dados de Liquidez
   const [userShares, setUserShares] = useState('0'); 
   const [totalShares, setTotalShares] = useState('0'); 
   const [shareValue, setShareValue] = useState({ val0: '0.00', val1: '0.00' }); 
   
-  // Inputs e Aprovações
+  // Inputs
   const [amountIn, setAmountIn] = useState('');
   const [tokenIn, setTokenIn] = useState('EURC'); 
   const [liquidityUSDC, setLiquidityUSDC] = useState('');
   const [liquidityEURC, setLiquidityEURC] = useState('');
   
-  // ESTADO DE APROVAÇÃO
+  // Aprovações
   const [needsApproval, setNeedsApproval] = useState({ usdc: false, eurc: false });
   
-  // Remoção de Liquidez
+  // Remoção
   const [amountToRemove, setAmountToRemove] = useState(''); 
   const [removePreview, setRemovePreview] = useState({ usdc: '0.00', eurc: '0.00' }); 
 
-  // Status de Processamento
+  // Status
   const [status, setStatus] = useState({ loading: false, msg: '' });
-
-  // --- HELPER: Formatação de Shares (18 casas fixas) ---
-  const formatShareDisplay = (valueStr) => {
-    if (!valueStr) return '0.000000000000000000';
-    const val = parseFloat(valueStr);
-    if (val === 0) return '0.000000000000000000';
-    return val.toFixed(18);
-  };
-
-  const formatBalance = (valueStr) => {
-    if (!valueStr) return '0.00';
-    const val = parseFloat(valueStr);
-    if (val === 0) return '0.00';
-    if (val < 0.01) return val.toFixed(6);
-    return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  };
-
-  // --- CHECK ALLOWANCES ---
-  const checkAllowances = useCallback(async () => {
-      if (!account || !signer) return;
-      
-      try {
-        const valUSDC = parseFloat(liquidityUSDC || '0');
-        const valEURC = parseFloat(liquidityEURC || '0');
-        
-        let needUSDC = false;
-        let needEURC = false;
-
-        if (valUSDC > 0) {
-            const usdcContract = new ethers.Contract(CONTRACTS.USDC, ERC20_ABI, signer);
-            const allowanceUSDC = await usdcContract.allowance(account, CONTRACTS.AEON_DEX);
-            const amountWeiUSDC = ethers.parseUnits(liquidityUSDC, decimals.usdc);
-            if (allowanceUSDC < amountWeiUSDC) needUSDC = true;
-        }
-
-        if (valEURC > 0) {
-            const eurcContract = new ethers.Contract(CONTRACTS.EURC, ERC20_ABI, signer);
-            const allowanceEURC = await eurcContract.allowance(account, CONTRACTS.AEON_DEX);
-            const amountWeiEURC = ethers.parseUnits(liquidityEURC, decimals.eurc);
-            if (allowanceEURC < amountWeiEURC) needEURC = true;
-        }
-
-        setNeedsApproval({ usdc: needUSDC, eurc: needEURC });
-
-      } catch (e) {
-          console.error("Error checking allowances", e);
-      }
-  }, [account, signer, liquidityUSDC, liquidityEURC, decimals]);
-
-  // Executa verificação de allowance sempre que os inputs mudam
-  useEffect(() => {
-      const timer = setTimeout(() => {
-          if(activeTab === 'pool') checkAllowances();
-      }, 500); // Debounce
-      return () => clearTimeout(timer);
-  }, [checkAllowances, activeTab]);
-
-
-  // --- EFFECT: Calcular Pré-visualização de Remoção ---
-  useEffect(() => {
-    if (!amountToRemove || !totalShares || parseFloat(totalShares) === 0 || parseFloat(amountToRemove) === 0) {
-        setRemovePreview({ usdc: '0.00', eurc: '0.00' });
-        return;
-    }
-    const sharesToRemoveNum = parseFloat(amountToRemove);
-    const totalSharesNum = parseFloat(totalShares);
-    const ratio = sharesToRemoveNum / totalSharesNum;
-
-    const estimatedUSDC = (reserves.r0 * ratio).toFixed(6);
-    const estimatedEURC = (reserves.r1 * ratio).toFixed(6);
-
-    setRemovePreview({ usdc: estimatedUSDC, eurc: estimatedEURC });
-  }, [amountToRemove, totalShares, reserves]);
 
   // --- UX HELPERS ---
   const showFeedback = (type, msg, duration = 4000) => {
@@ -207,40 +133,63 @@ export default function AeonDEX() {
       }
   };
 
-  // --- GESTÃO DE REDE ---
-  const switchNetwork = async () => {
-    if(!window.ethereum) return;
-    try {
-        await window.ethereum.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: ARC_CONFIG.chainIdHex }],
-        });
-        setWrongNetwork(false);
-    } catch (switchError) {
-        if (switchError.code === 4902 || switchError.code === -32603) {
-            try {
-                await window.ethereum.request({
-                    method: 'wallet_addEthereumChain',
-                    params: [{
-                        chainId: ARC_CONFIG.chainIdHex,
-                        chainName: ARC_CONFIG.chainName,
-                        nativeCurrency: ARC_CONFIG.nativeCurrency,
-                        rpcUrls: [ARC_CONFIG.rpcUrl],
-                        blockExplorerUrls: [ARC_CONFIG.explorerUrl]
-                    }],
-                });
-                setWrongNetwork(false);
-            } catch (addError) { 
-                console.error(addError);
-                showFeedback('error', 'Failed to add network');
-            }
-        } else {
-            showFeedback('error', 'Failed to switch network');
-        }
+  const formatShareDisplay = (valStr) => {
+    if (!valStr || parseFloat(valStr) === 0) return '0.000000000000000000';
+    return parseFloat(valStr).toFixed(18);
+  };
+
+  const formatBalance = (valStr) => {
+    if (!valStr) return '0.00';
+    const val = parseFloat(valStr);
+    if (val === 0) return '0.00';
+    if (val < 0.01) return val.toFixed(6);
+    return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  };
+
+  const getSwapRate = () => {
+    if (reserves.r0 === 0 || reserves.r1 === 0) return null;
+    if (tokenIn === 'EURC') {
+        const rate = reserves.r0 / reserves.r1;
+        return `1 EURC ≈ ${rate.toFixed(4)} USDC`;
+    } else {
+        const rate = reserves.r1 / reserves.r0;
+        return `1 USDC ≈ ${rate.toFixed(4)} EURC`;
     }
   };
 
-  // --- INICIALIZAÇÃO ---
+  // --- FUNÇÃO DE TROCAR REDE (UTILITÁRIA) ---
+  const triggerNetworkSwitch = async () => {
+      if(!window.ethereum) return;
+      try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: ARC_CONFIG.chainIdHex }],
+          });
+          return true;
+      } catch (switchError) {
+          if (switchError.code === 4902 || switchError.code === -32603) {
+              try {
+                  await window.ethereum.request({
+                      method: 'wallet_addEthereumChain',
+                      params: [{
+                          chainId: ARC_CONFIG.chainIdHex,
+                          chainName: ARC_CONFIG.chainName,
+                          nativeCurrency: ARC_CONFIG.nativeCurrency,
+                          rpcUrls: [ARC_CONFIG.rpcUrl],
+                          blockExplorerUrls: [ARC_CONFIG.explorerUrl]
+                      }],
+                  });
+                  return true;
+              } catch (addError) { 
+                  console.error(addError);
+                  return false;
+              }
+          }
+          return false;
+      }
+  };
+
+  // --- INIT & CONNECT ---
   useEffect(() => {
     const init = async () => {
       const isConnected = localStorage.getItem('isWalletConnected') === 'true';
@@ -254,12 +203,15 @@ export default function AeonDEX() {
             const _account = await _signer.getAddress();
             
             const network = await _provider.getNetwork();
-            if (Number(network.chainId) !== ARC_CONFIG.chainId) setWrongNetwork(true);
+            // Se estiver na rede errada ao recarregar, marca o erro
+            if (Number(network.chainId) !== ARC_CONFIG.chainId) {
+                setWrongNetwork(true);
+            }
 
             setProvider(_provider);
             setSigner(_signer);
             setAccount(_account);
-            fetchData(_signer, _account);
+            if (!wrongNetwork) fetchData(_signer, _account);
           } else {
             localStorage.removeItem('isWalletConnected');
           }
@@ -279,7 +231,7 @@ export default function AeonDEX() {
     }
   }, []);
 
-  // --- CONEXÃO ---
+  // --- CONEXÃO COM TROCA AUTOMÁTICA ---
   const connectWallet = async () => {
     const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobileDevice && !window.ethereum) {
@@ -290,23 +242,34 @@ export default function AeonDEX() {
     if (window.ethereum) {
       try {
         const _provider = new ethers.BrowserProvider(window.ethereum);
-        const network = await _provider.getNetwork();
         
-        if (Number(network.chainId) !== ARC_CONFIG.chainId) {
-            setWrongNetwork(true);
-            try { await switchNetwork(); } catch(e) {
-                return showFeedback('error', 'Wrong Network. Please switch to Arc.');
-            } 
-        }
-
+        // 1. SOLICITA A CONEXÃO (Pop-up do Metamask)
         await _provider.send("eth_requestAccounts", []);
         const _signer = await _provider.getSigner();
         
+        // 2. ASSINATURA DA MENSAGEM (Opcional, mas mantendo conforme seu fluxo)
         const message = `Welcome to Aeon DEX!\n\nPlease sign this message to confirm ownership.\n\nTime: ${new Date().toLocaleString()}`;
         try {
             await _signer.signMessage(message);
         } catch (signErr) {
+            if (signErr.code === 4001) throw new Error("Signature rejected");
             console.warn("Signature skipped/failed", signErr);
+        }
+
+        // 3. VERIFICA E TROCA A REDE AUTOMATICAMENTE AGORA
+        const network = await _provider.getNetwork();
+        if (Number(network.chainId) !== ARC_CONFIG.chainId) {
+            // Tenta trocar imediatamente
+            const switched = await triggerNetworkSwitch();
+            if (!switched) {
+                // Se falhar a troca (ex: usuário cancelou), definimos estado de erro
+                setWrongNetwork(true);
+                showFeedback('error', 'Wrong Network. Please switch manually.');
+            } else {
+                setWrongNetwork(false);
+            }
+        } else {
+            setWrongNetwork(false);
         }
 
         const _account = await _signer.getAddress();
@@ -315,10 +278,14 @@ export default function AeonDEX() {
         setProvider(_provider);
         setSigner(_signer);
         setAccount(_account);
-        setWrongNetwork(false);
+        
         showFeedback('success', 'Wallet Connected!');
         
-        await fetchData(_signer, _account);
+        // Se a rede estiver correta agora, busca dados
+        const updatedNetwork = await _provider.getNetwork();
+        if (Number(updatedNetwork.chainId) === ARC_CONFIG.chainId) {
+            await fetchData(_signer, _account);
+        }
 
       } catch (error) {
         let msg = "Connection failed";
@@ -382,9 +349,10 @@ export default function AeonDEX() {
 
           if (totalSharesNum > 0 && mySharesNum > 0) {
               const sharePercent = mySharesNum / totalSharesNum;
-              const myValue0 = (r0Formatted * sharePercent).toFixed(4);
-              const myValue1 = (r1Formatted * sharePercent).toFixed(4);
-              setShareValue({ val0: myValue0, val1: myValue1 });
+              setShareValue({ 
+                val0: (r0Formatted * sharePercent).toFixed(4), 
+                val1: (r1Formatted * sharePercent).toFixed(4) 
+              });
           } else {
               setShareValue({ val0: '0.00', val1: '0.00' });
           }
@@ -394,22 +362,68 @@ export default function AeonDEX() {
       }
   };
 
-  // --- SWAP ---
+  // --- CHECK ALLOWANCES ---
+  const checkAllowances = useCallback(async () => {
+      if (!account || !signer) return;
+      try {
+        const valUSDC = parseFloat(liquidityUSDC || '0');
+        const valEURC = parseFloat(liquidityEURC || '0');
+        let needUSDC = false;
+        let needEURC = false;
+
+        if (valUSDC > 0) {
+            const usdcContract = new ethers.Contract(CONTRACTS.USDC, ERC20_ABI, signer);
+            const allowanceUSDC = await usdcContract.allowance(account, CONTRACTS.AEON_DEX);
+            const amountWeiUSDC = ethers.parseUnits(liquidityUSDC, decimals.usdc);
+            if (allowanceUSDC < amountWeiUSDC) needUSDC = true;
+        }
+
+        if (valEURC > 0) {
+            const eurcContract = new ethers.Contract(CONTRACTS.EURC, ERC20_ABI, signer);
+            const allowanceEURC = await eurcContract.allowance(account, CONTRACTS.AEON_DEX);
+            const amountWeiEURC = ethers.parseUnits(liquidityEURC, decimals.eurc);
+            if (allowanceEURC < amountWeiEURC) needEURC = true;
+        }
+        setNeedsApproval({ usdc: needUSDC, eurc: needEURC });
+      } catch (e) { console.error("Error checking allowances", e); }
+  }, [account, signer, liquidityUSDC, liquidityEURC, decimals]);
+
+  useEffect(() => {
+      const timer = setTimeout(() => {
+          if(activeTab === 'pool') checkAllowances();
+      }, 500); 
+      return () => clearTimeout(timer);
+  }, [checkAllowances, activeTab]);
+
+  // --- CALCULA PREVIEW DE REMOÇÃO ---
+  useEffect(() => {
+    if (!amountToRemove || !totalShares || parseFloat(totalShares) === 0 || parseFloat(amountToRemove) === 0) {
+        setRemovePreview({ usdc: '0.00', eurc: '0.00' });
+        return;
+    }
+    const ratio = parseFloat(amountToRemove) / parseFloat(totalShares);
+    setRemovePreview({ 
+        usdc: (reserves.r0 * ratio).toFixed(6), 
+        eurc: (reserves.r1 * ratio).toFixed(6) 
+    });
+  }, [amountToRemove, totalShares, reserves]);
+
+  // --- ACTIONS (SWAP) ---
   const handleSwap = async () => {
       if (!signer || !amountIn) return;
+      if (wrongNetwork) return showFeedback('error', 'Wrong Network');
+      
       setStatus({ loading: true, msg: 'Initializing Swap...' });
-
       try {
           const decimalsIn = tokenIn === 'USDC' ? decimals.usdc : decimals.eurc;
           const amountWei = ethers.parseUnits(amountIn, decimalsIn);
-          
           const tokenInAddr = tokenIn === 'USDC' ? CONTRACTS.USDC : CONTRACTS.EURC;
+          
           const tokenContract = new ethers.Contract(tokenInAddr, ERC20_ABI, signer);
           const dexContract = new ethers.Contract(CONTRACTS.AEON_DEX, DEX_ABI, signer);
 
           setStatus({ loading: true, msg: `Approving ${tokenIn}...` });
           const allowance = await tokenContract.allowance(account, CONTRACTS.AEON_DEX);
-          
           if (allowance < amountWei) {
               const tx = await tokenContract.approve(CONTRACTS.AEON_DEX, amountWei);
               await tx.wait();
@@ -422,64 +436,46 @@ export default function AeonDEX() {
           showFeedback('success', 'Swap Successful!');
           setAmountIn('');
           await fetchData(signer, account);
-
       } catch (e) {
           console.error(e);
           showFeedback('error', 'Swap Failed');
-      } finally {
-          setStatus({ loading: false, msg: '' });
-      }
+      } finally { setStatus({ loading: false, msg: '' }); }
   };
 
-  // --- LOGICA DE BOTÃO "ADD LIQUIDITY" INTELIGENTE ---
+  // --- ACTIONS (ADD LIQUIDITY) ---
   const handleLiquidityAction = async () => {
       if (!signer || !liquidityUSDC || !liquidityEURC) return;
+      if (wrongNetwork) return showFeedback('error', 'Wrong Network');
 
-      // 1. Aprovar USDC se necessário
       if (needsApproval.usdc) {
           try {
               setStatus({ loading: true, msg: 'Approving USDC...' });
               const usdcContract = new ethers.Contract(CONTRACTS.USDC, ERC20_ABI, signer);
-              const amtUSDC = ethers.parseUnits(liquidityUSDC, decimals.usdc);
-              const tx = await usdcContract.approve(CONTRACTS.AEON_DEX, amtUSDC);
+              const tx = await usdcContract.approve(CONTRACTS.AEON_DEX, ethers.parseUnits(liquidityUSDC, decimals.usdc));
               await tx.wait();
-              
               showFeedback('success', 'USDC Approved');
               await checkAllowances(); 
-          } catch (e) {
-              console.error(e);
-              showFeedback('error', 'USDC Approval Failed');
-          } finally {
-              setStatus({ loading: false, msg: '' });
-          }
+          } catch (e) { showFeedback('error', 'USDC Failed'); } 
+          finally { setStatus({ loading: false, msg: '' }); }
           return;
       }
 
-      // 2. Aprovar EURC se necessário
       if (needsApproval.eurc) {
           try {
               setStatus({ loading: true, msg: 'Approving EURC...' });
               const eurcContract = new ethers.Contract(CONTRACTS.EURC, ERC20_ABI, signer);
-              const amtEURC = ethers.parseUnits(liquidityEURC, decimals.eurc);
-              const tx = await eurcContract.approve(CONTRACTS.AEON_DEX, amtEURC);
+              const tx = await eurcContract.approve(CONTRACTS.AEON_DEX, ethers.parseUnits(liquidityEURC, decimals.eurc));
               await tx.wait();
-              
               showFeedback('success', 'EURC Approved');
               await checkAllowances();
-          } catch (e) {
-              console.error(e);
-              showFeedback('error', 'EURC Approval Failed');
-          } finally {
-              setStatus({ loading: false, msg: '' });
-          }
+          } catch (e) { showFeedback('error', 'EURC Failed'); } 
+          finally { setStatus({ loading: false, msg: '' }); }
           return;
       }
 
-      // 3. Adicionar Liquidez
       try {
           setStatus({ loading: true, msg: 'Adding Liquidity...' });
           const dexContract = new ethers.Contract(CONTRACTS.AEON_DEX, DEX_ABI, signer);
-          
           const amtUSDC = ethers.parseUnits(liquidityUSDC, decimals.usdc);
           const amtEURC = ethers.parseUnits(liquidityEURC, decimals.eurc);
 
@@ -491,32 +487,18 @@ export default function AeonDEX() {
           setLiquidityEURC('');
           await fetchData(signer, account);
           await checkAllowances();
-
       } catch (e) {
           console.error(e);
-          showFeedback('error', 'Failed to Add Liquidity');
-      } finally {
-          setStatus({ loading: false, msg: '' });
-      }
+          showFeedback('error', 'Failed to Add');
+      } finally { setStatus({ loading: false, msg: '' }); }
   };
 
-  const getLiquidityButtonText = () => {
-      if (!account) return 'Connect Wallet';
-      if (status.loading) return status.msg;
-      if (!liquidityUSDC || !liquidityEURC) return 'Enter Amount';
-      
-      if (needsApproval.usdc) return 'Approve USDC';
-      if (needsApproval.eurc) return 'Approve EURC';
-      
-      return 'Add Liquidity';
-  };
-
-
-  // --- REMOVER LIQUIDEZ ---
+  // --- ACTIONS (REMOVE LIQUIDITY) ---
   const handleRemoveLiquidity = async () => {
       if (!signer || !amountToRemove) return;
-      setStatus({ loading: true, msg: 'Removing Liquidity...' });
-
+      if (wrongNetwork) return showFeedback('error', 'Wrong Network');
+      
+      setStatus({ loading: true, msg: 'Removing...' });
       try {
           const dexContract = new ethers.Contract(CONTRACTS.AEON_DEX, DEX_ABI, signer);
           const sharesWei = ethers.parseUnits(amountToRemove, 18);
@@ -527,34 +509,44 @@ export default function AeonDEX() {
                return;
           }
 
-          setStatus({ loading: true, msg: 'Confirm in Wallet...' });
           const tx = await dexContract.removeLiquidity(sharesWei);
           await tx.wait();
 
           showFeedback('success', 'Liquidity Removed!');
           setAmountToRemove('');
-          setRemovePreview({ usdc: '0.00', eurc: '0.00' });
           await fetchData(signer, account);
-
       } catch (e) {
           console.error(e);
           showFeedback('error', 'Failed to Remove');
-      } finally {
-          setStatus({ loading: false, msg: '' });
-      }
+      } finally { setStatus({ loading: false, msg: '' }); }
   };
 
-  // --- CÁLCULO DE SAÍDA SWAP ---
+  const getLiquidityButtonText = () => {
+      if (!account) return 'Connect Wallet';
+      if (wrongNetwork) return 'Wrong Network';
+      if (status.loading) return status.msg;
+      if (!liquidityUSDC || !liquidityEURC) return 'Enter Amount';
+      if (needsApproval.usdc) return 'Approve USDC';
+      if (needsApproval.eurc) return 'Approve EURC';
+      return 'Add Liquidity';
+  };
+
+  // --- CÁLCULOS SWAP ---
   const calculateOutput = () => {
       if (!amountIn || reserves.r0 === 0) return '0.00';
       const val = parseFloat(amountIn);
       const fee = val * 0.997; 
-      
       if (tokenIn === 'USDC') {
           return ((reserves.r1 * fee) / (reserves.r0 + fee)).toFixed(6);
       } else {
           return ((reserves.r0 * fee) / (reserves.r1 + fee)).toFixed(6);
       }
+  };
+
+  const calculateMinReceived = () => {
+      const output = calculateOutput();
+      if(output === '0.00') return '0.00';
+      return (parseFloat(output) * (1 - SLIPPAGE_TOLERANCE)).toFixed(6);
   };
 
   const toggleDirection = () => {
@@ -601,13 +593,13 @@ export default function AeonDEX() {
 
       {/* FEEDBACK TOAST */}
       {feedback && (
-        <div className={`fixed top-24 right-4 px-6 py-4 rounded-xl border flex items-center gap-3 z-[100] shadow-2xl animate-in slide-in-from-right fade-in duration-300 ${feedback.type === 'success' ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200' : 'bg-red-950/90 border-red-500/50 text-red-200'}`}>
+        <div className={`fixed top-24 right-4 px-6 py-4 rounded-xl border flex items-center gap-3 z-[1000] shadow-2xl animate-in slide-in-from-right fade-in duration-300 ${feedback.type === 'success' ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200' : 'bg-red-950/90 border-red-500/50 text-red-200'}`}>
             {feedback.type === 'success' ? <CheckCircle2 size={20}/> : <Info size={20}/>}
             <span className="font-medium">{feedback.message}</span>
         </div>
       )}
 
-      {/* MOBILE INSTRUCTIONS MODAL */}
+      {/* MOBILE INSTRUCTIONS */}
       {showMobileInstructions && (
           <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
               <div className="bg-zinc-900 border border-zinc-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative text-center">
@@ -615,20 +607,27 @@ export default function AeonDEX() {
                   <div className="bg-purple-500/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-purple-500/20"><Smartphone className="w-8 h-8 text-purple-400"/></div>
                   <h3 className="text-xl font-bold text-white mb-2">Connect Mobile Wallet</h3>
                   <p className="text-zinc-400 text-sm mb-6 leading-relaxed">Aeon DEX works best inside your wallet's built-in browser (MetaMask, Rabby, etc).</p>
-                  <button onClick={copyUrl} className="w-full py-4 bg-purple-600 hover:bg-purple-500 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-white shadow-lg shadow-purple-900/30"><Copy size={20}/> Copy Website Link</button>
+                  <button onClick={copyUrl} className="w-full py-4 bg-purple-600 hover:bg-purple-500 active:scale-95 transform rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-white shadow-lg shadow-purple-900/30">
+                      <Copy size={20}/> Copy Website Link
+                  </button>
                   <div className="mt-4 text-center text-xs text-zinc-500">1. Copy Link above<br/>2. Open MetaMask or Rabby App<br/>3. Paste in the internal Browser</div>
               </div>
           </div>
       )}
 
-      {/* WRONG NETWORK ALERT */}
+      {/* WRONG NETWORK ALERT & ACTION BUTTON */}
       {wrongNetwork && (
           <div className="fixed bottom-24 right-4 lg:bottom-auto lg:top-24 lg:left-1/2 lg:-translate-x-1/2 z-[100] p-4 bg-red-500/90 backdrop-blur border border-red-400 rounded-xl flex items-center gap-4 shadow-2xl animate-bounce">
               <div className="flex items-center gap-2 text-white">
                   <AlertTriangle className="w-5 h-5"/>
                   <span className="font-bold">Wrong Network</span>
               </div>
-              <button onClick={switchNetwork} className="bg-white text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-100">Switch to Arc</button>
+              <button 
+                onClick={triggerNetworkSwitch} 
+                className="bg-white text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-gray-100 uppercase tracking-wide shadow-md"
+              >
+                Switch / Add Network
+              </button>
           </div>
       )}
 
@@ -648,7 +647,7 @@ export default function AeonDEX() {
                 <>
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-xl font-bold">Swap Tokens</h2>
-                        <span className="text-xs bg-slate-950 px-2 py-1 rounded text-slate-500 border border-slate-800">Slippage: Auto</span>
+                        <span className="text-xs bg-slate-950 px-2 py-1 rounded text-slate-500 border border-slate-800">Slippage: 0.5% (Auto)</span>
                     </div>
 
                     {/* INPUT */}
@@ -691,9 +690,19 @@ export default function AeonDEX() {
                                 {tokenIn === 'USDC' ? <><EURCIcon/> EURC</> : <><USDCIcon/> USDC</>}
                             </div>
                         </div>
+                        
+                        {/* SWAP RATIO DISPLAY & SLIPPAGE */}
+                        <div className="mt-2 pt-2 border-t border-slate-800 flex justify-between items-center text-[10px] text-slate-500">
+                            <span className="flex items-center gap-1">Min Received: {calculateMinReceived()} {tokenIn === 'USDC' ? 'EURC' : 'USDC'}</span>
+                            
+                            {/* EXIBIÇÃO DA TAXA DE CÂMBIO EM TEMPO REAL */}
+                            <span className="bg-slate-900 px-2 py-1 rounded-md border border-slate-800 text-purple-300 font-mono">
+                                {getSwapRate() || 'Loading Rate...'}
+                            </span>
+                        </div>
                     </div>
 
-                    {/* TRANSPARENCY NOTE (ATUALIZADO) */}
+                    {/* TRANSPARENCY NOTE */}
                     <div className="mt-4 p-4 bg-purple-500/5 border border-purple-500/10 rounded-xl">
                         <div className="flex justify-between text-xs">
                             <span className="text-slate-500 flex items-center gap-1">Liquidity Provider Fee <Info size={12}/></span>
@@ -742,8 +751,8 @@ export default function AeonDEX() {
                             </div>
                         </div>
 
-                        {/* REMOVE LIQUIDITY INPUT */}
-                        {parseFloat(userShares) > 0 && (
+                        {/* REMOVE LIQUIDITY OU HINT */}
+                        {parseFloat(userShares) > 0 ? (
                             <div className="pt-4 border-t border-slate-800 relative z-10">
                                 <div className="flex justify-between text-xs text-slate-500 mb-2">
                                     <label>Remove Liquidity (Shares)</label>
@@ -778,6 +787,16 @@ export default function AeonDEX() {
                                 >
                                     {status.loading ? <><Loader2 size={14} className="animate-spin"/> Processing</> : 'Confirm Remove'}
                                 </button>
+                            </div>
+                        ) : (
+                            // HINT DE ESTADO VAZIO
+                            <div className="mt-4 pt-4 border-t border-slate-800/50 flex flex-col gap-2 items-center text-center relative z-10">
+                                <p className="text-xs text-slate-400 flex items-center gap-1">
+                                    <HelpCircle size={12}/> How LP Shares work
+                                </p>
+                                <p className="text-[10px] text-slate-500 max-w-xs leading-relaxed">
+                                    When you deposit equal values of USDC and EURC, you receive LP Shares representing your ownership of the pool. These shares automatically grow in value as trading fees collect.
+                                </p>
                             </div>
                         )}
                     </div>
