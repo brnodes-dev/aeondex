@@ -7,7 +7,8 @@ Welcome to **AeonDEX**, a decentralized exchange (DEX) running on the **Arc Test
 Before you begin, ensure you have:
 1.  **A Web3 Wallet:** Installed extensions like **MetaMask** or **Rabby Wallet** in your browser.
 2.  **Arc Testnet Configured:** The application will attempt to add this automatically, but you should be aware we operate on `Chain ID: 5042002`.
-3.  **Test Tokens:** You will need **USDC** and **EURC** test tokens, plus **ETH** (on Arc) to pay for gas fees.
+3.  **Test Tokens:** You will need **USDC** (Native token for Gas Fees & Trading) and **EURC**.
+    * *Note:* Since USDC is the native currency for gas on Arc, ensure you always maintain a small balance of USDC to pay for transaction fees.
 
 ---
 
@@ -73,7 +74,7 @@ You can withdraw your tokens and accumulated fees at any time.
 ## ⚠️ Troubleshooting
 
 * **"Wrong Network" Alert:** If you see a red banner, click the "Switch to Arc" button inside the alert.
-* **Button is grayed out:** Ensure you have enough ETH for gas fees and that you have entered a valid amount (not zero).
+* **Button is grayed out:** Ensure you have enough **USDC** for gas fees and that you have entered a valid amount (not zero).
 * **Transaction Failed:** Check if you have sufficient slippage tolerance or if the network is busy. Try refreshing the page.
 
 ---
